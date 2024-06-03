@@ -1,12 +1,25 @@
 import sqlite3
 import os
+import subprocess
+import re
+import platform
 from tkinter import *
 from tkinter import messagebox
 
 # Script Variables
-ExpiryDateD = 30
-ScheduleRepeatH = 24
+ExpiryDateD = None
+ScheduleRepeatH = None
 ExpiryDateText = ExpiryDateD
+regexnum = '^[0-9]+$'
+
+
+#Default Values Settings:
+DefaultExpiryDate = 30
+DefaultScheduleRepeat = 24
+DefaultBackupTitle = 'ServerXYZ'
+DefaultCopyPath = 'Default/Server/Path'
+DefaultPastePath = 'Default/Server/Path'
+DefaultArchivePath = 'Default/Server/Path'
 
 # Font Variable
 Titlefont = 'Times New Roman'  # is for Title & smallTitle
@@ -22,7 +35,7 @@ WindowSize = '700x350'
 
 # SQLite Functions //////////////////////////////////////////////////////////////
 def create_connection():
-    # Define the path to the database file
+    # Define the path to the database file  
     db_directory = 'database'
     db_path = os.path.join(db_directory, 'Backups.db')
     
@@ -74,6 +87,29 @@ def create_tables(conn):
                         frequency TEXT,
                         FOREIGN KEY (backup_id) REFERENCES backups(backup_id)
                     )''')
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Expiry_Date', '30'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Expiry_Date');''')
+
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Schedule_Repeat', '24'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Schedule_Repeat');''')
+        # BACKUP TITLE
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Backup_Title', 'ServerXYZ'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Backup_Title');''')
+        # Copying From
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Copying_From', 'Default'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Copying_From');''')
+        # Copying To
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Copying_To', 'Backup'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Copying_To');''')
+        # Archive Dir
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Archive_Dir', 'DEFAULT'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Archive_Dir');''')
 
 # Example function to insert a new backup record
 def insert_backup(conn, backup_name, status, size, location, backup_type):
@@ -83,6 +119,82 @@ def insert_backup(conn, backup_name, status, size, location, backup_type):
         cur = conn.cursor()
         cur.execute(sql, (backup_name, status, size, location, backup_type))
         return cur.lastrowid
+
+# Take Last settings Values from DB ----------------------------------------------
+def fetch_settings(conn):
+    global ExpiryDateD, ScheduleRepeatH
+    with conn:
+        sql = '''SELECT setting_name, setting_value FROM settings WHERE setting_name IN ('Expiry_Date', 'Schedule_Repeat');'''
+        cur = conn.cursor()
+        cur.execute(sql)
+        settings = cur.fetchall()
+        for name, value in settings:
+            if name == 'Expiry_Date':
+                ExpiryDateD = value
+            elif name == 'Schedule_Repeat':
+                ScheduleRepeatH = value
+
+# Update Settings Values ---------------------------------------------------------
+def UpdateSettings_ExpiryDate(conn, ExpiryDateD):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Expiry_Date';'''
+        cur = conn.cursor()
+        cur.execute(sql, (ExpiryDateD,))
+        return cur.lastrowid
+    
+def UpdateSettings_ScheduleRepeat(conn, ScheduleRepeatH):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Schedule_Repeat';'''
+        cur = conn.cursor()
+        cur.execute(sql, (ScheduleRepeatH,))
+        return cur.lastrowid
+
+# Button Fuctions -----------------------------------------------------------------
+def CreateBackup():
+    os_name = platform.system()
+    script_path = 'Python_Autobackup/autobackup.sh'
+    
+    if os_name == 'Windows':
+        # Assuming 'bash' is available in the system PATH (e.g., Git Bash)
+        result = subprocess.run(['bash', script_path], shell=True)
+        print(result)
+        print(os_name)
+        return "Running on Windows"
+    elif os_name in ['Linux', 'Darwin']:  # Linux and macOS
+        result = subprocess.run(['bash', script_path])
+        print(result)
+        print(os_name)
+        return f"Running on {os_name}"
+    else:
+        print(os_name)
+        return f"Running on {os_name}"
+
+def NewSettingValues():
+    # Expiry Date Values
+    ExpiryDateD = entry_widget1.get()
+    if entry_widget1.get() == None or ExpiryDateD == "0" or ExpiryDateD == "" or ExpiryDateD == " " or not (re.search(regexnum, ExpiryDateD)):
+        ExpiryDateD = DefaultExpiryDate
+    else:
+        ExpiryDateD = entry_widget1.get()
+        text3.config(text=ExpiryDateD)
+        UpdateSettings_ExpiryDate(conn, ExpiryDateD)
+    # Schedule Repeat Date Values
+    ScheduleRepeatH = entry_widget2.get()
+    if entry_widget2.get() == None or ScheduleRepeatH == "0" or ScheduleRepeatH == "" or ScheduleRepeatH == " " or not (re.search(regexnum, ScheduleRepeatH)):
+        ScheduleRepeatH = DefaultScheduleRepeat
+    else:
+        ScheduleRepeatH = entry_widget2.get()
+        text5.config(text=ScheduleRepeatH)
+        UpdateSettings_ScheduleRepeat(conn, ScheduleRepeatH)
+    messagebox.showinfo('Saving',  
+                        "Settings saved successfully!") 
+    entry_widget1.delete(0, END) 
+    entry_widget2.delete(0, END)
+
 
 # Tkinter Functions //////////////////////////////////////////////////////////////
 def CheckArchive_Options():
@@ -109,6 +221,14 @@ def Settings_Options():
     home_frame.pack_forget()
     screen6_frame.pack(fill='both', expand=True)
 
+def Update_Options():
+    text3.config(text=ExpiryDateD)
+    text5.config(text=ScheduleRepeatH)
+
+def Settings_ButtonPress():
+    fetch_settings(conn)
+    Update_Options()
+    Settings_Options()
 # Main Window
 win = Tk()
 win.resizable(width=False, height=False)
@@ -118,6 +238,7 @@ win.geometry(WindowSize)
 
 conn = create_connection()
 create_tables(conn)
+fetch_settings(conn)
 
 # Home Screen Frame ---------------------------------------------------------------------
 home_frame = Frame(win)
@@ -140,7 +261,7 @@ ViewerBackup_Button = Button(home_frame, text="View Backups", font=(ButtonFont, 
 ViewerBackup_Button.place(x=400, y=220)
 Quit = Button(home_frame, text="Quit", font=(ButtonFont, 10), command=win.quit)
 Quit.place(x=400, y=250)
-SettingsBackup_Button = Button(home_frame, text="Settings", font=(ButtonFont, 10), command=Settings_Options)
+SettingsBackup_Button = Button(home_frame, text="Settings", font=(ButtonFont, 10), command=Settings_ButtonPress)
 SettingsBackup_Button.place(x=440, y=250)
 
 # Screen 1 Frame --------------------------------------------------------------------- Check Archive
@@ -165,6 +286,8 @@ smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen2_frame, text="Create new Backup", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
 
+create_button = Button(screen2_frame, text="New Backup", font=(ButtonFont, 10), command=CreateBackup)
+create_button.place(x=400, y=240)
 back_button = Button(screen2_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen2_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
 back_button.place(x=400, y=280)
 
@@ -219,15 +342,85 @@ smallTitle2.place(x=50, y=40)
 
 back_button = Button(screen6_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen6_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
 back_button.place(x=400, y=280)
-text1 = Label(screen6_frame, text="Schedule Options", font=(SubTitlefont, 12))
-text1.place(x=80, y=80)
-text2 = Label(screen6_frame, text="Variable Options", font=(SubTitlefont, 12))
-text2.place(x=300, y=80)
+# Expiry Date
+text2 = Label(screen6_frame, text="Expiry Date:", font=(SubTitlefont, 10))
+text2.place(x=80, y=70)
 text3 = Label(screen6_frame, text=ExpiryDateD, font=(SubTitlefont, 10))
-text3.place(x=80, y=110)
-text4 = Label(screen6_frame, text="Variable Options", font=(SubTitlefont, 10))
-text4.place(x=300, y=110)
+text3.place(x=190, y=70)
+# Schedule Repeat
+text4 = Label(screen6_frame, text="Schedule Repeat:", font=(SubTitlefont, 10))
+text4.place(x=80, y=100)
+text5 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text5.place(x=190, y=100)
+# Backup Title
+text6 = Label(screen6_frame, text="Backup Title:", font=(SubTitlefont, 10))
+text6.place(x=80, y=130)
+text7 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text7.place(x=190, y=130)
+# Copying from
+text8 = Label(screen6_frame, text="Copying from:", font=(SubTitlefont, 10))
+text8.place(x=80, y=160)
+text9 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text9.place(x=190, y=160)
+# Copying to
+text10 = Label(screen6_frame, text="Copying to:", font=(SubTitlefont, 10))
+text10.place(x=80, y=190)
+text11 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text11.place(x=190, y=190)
+# Archive Directory
+text12 = Label(screen6_frame, text="Archive Directory:", font=(SubTitlefont, 10))
+text12.place(x=80, y=220)
+text13 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text13.place(x=190, y=220)
 
+# Input v
+canvas_widget = Canvas(screen6_frame, width=250, height=300) 
+canvas_widget.place(x=210, y=-40) 
+  
+# Create and place the label in canvas 
+# for user to enter his name 
+label_widget1 = Label(screen6_frame, text="Expiry Date (in Days)") 
+canvas_widget.create_window(150, 120, window=label_widget1)
+
+label_widget2 = Label(screen6_frame, text="Scheduled Repeat (in Hours)") 
+canvas_widget.create_window(150, 150, window=label_widget2) 
+
+label_widget3 = Label(screen6_frame, text="Backup Title (No Spaces)") 
+canvas_widget.create_window(150, 180, window=label_widget3)
+
+label_widget4 = Label(screen6_frame, text="copying from (No Spaces)") 
+canvas_widget.create_window(150, 210, window=label_widget4) 
+
+label_widget5 = Label(screen6_frame, text="copying to (No Spaces)") 
+canvas_widget.create_window(150, 240, window=label_widget5)
+
+label_widget6 = Label(screen6_frame, text="Archive Directory (No Spaces)") 
+canvas_widget.create_window(150, 270, window=label_widget6)
+# Create an input name on canvas 
+# for inputting user name using widget Entry 
+entry_widget1 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 120, window=entry_widget1) 
+
+entry_widget2 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 150, window=entry_widget2) 
+
+entry_widget3 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 180, window=entry_widget3)
+
+entry_widget4 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 210, window=entry_widget4)
+
+entry_widget5 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 240, window=entry_widget5)
+
+entry_widget6 = Entry(screen6_frame) 
+canvas_widget.create_window(300, 270, window=entry_widget6)
+  
+# Creating and placing the button on canvas to submit data 
+button_widget = Button(text='Submit', command=NewSettingValues) 
+canvas_widget.create_window(225, 300, window=button_widget)
+
+# Input ^
 
 screen6_frame.pack_forget()
 
