@@ -3,6 +3,11 @@ import os
 from tkinter import *
 from tkinter import messagebox
 
+# Script Variables
+ExpiryDateD = 30
+ScheduleRepeatH = 24
+ExpiryDateText = ExpiryDateD
+
 # Font Variable
 Titlefont = 'Times New Roman'  # is for Title & smallTitle
 SubTitlefont = 'Arial bold'  # is for smallTitle2
@@ -11,7 +16,8 @@ TextFont = 'Arial bold'  # is for all Content and Texts
 
 # Frame Variables
 FrameTitle = 'Smart. B.S.'
-FrameIcon = 'images/Icon.ico'
+script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
+FrameIcon = os.path.join(script_dir, 'images', 'Icon.ico')
 WindowSize = '700x350'
 
 # SQLite Functions //////////////////////////////////////////////////////////////
@@ -213,6 +219,15 @@ smallTitle2.place(x=50, y=40)
 
 back_button = Button(screen6_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen6_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
 back_button.place(x=400, y=280)
+text1 = Label(screen6_frame, text="Schedule Options", font=(SubTitlefont, 12))
+text1.place(x=80, y=80)
+text2 = Label(screen6_frame, text="Variable Options", font=(SubTitlefont, 12))
+text2.place(x=300, y=80)
+text3 = Label(screen6_frame, text=ExpiryDateD, font=(SubTitlefont, 10))
+text3.place(x=80, y=110)
+text4 = Label(screen6_frame, text="Variable Options", font=(SubTitlefont, 10))
+text4.place(x=300, y=110)
+
 
 screen6_frame.pack_forget()
 
