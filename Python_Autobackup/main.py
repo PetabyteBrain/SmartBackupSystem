@@ -9,8 +9,14 @@ from tkinter import messagebox
 # Script Variables
 ExpiryDateD = None
 ScheduleRepeatH = None
+BackupTitleT = None
+CopyPathP = None
+PastePathP = None
+ArchivePathP = None
+OperatingSystem = None
 ExpiryDateText = ExpiryDateD
 regexnum = '^[0-9]+$'
+regexletter = '^[A-Za-z0-9]+$'
 
 
 #Default Values Settings:
@@ -87,10 +93,15 @@ def create_tables(conn):
                         frequency TEXT,
                         FOREIGN KEY (backup_id) REFERENCES backups(backup_id)
                     )''')
+        # Recognised OS
+        conn.execute('''INSERT INTO settings (setting_name, setting_value)
+                        SELECT 'Recognised_OS', 'Unknown_OS'
+                        WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Recognised_OS');''')
+        # Expiry Date
         conn.execute('''INSERT INTO settings (setting_name, setting_value)
                         SELECT 'Expiry_Date', '30'
                         WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Expiry_Date');''')
-
+        # Schedule Repeat
         conn.execute('''INSERT INTO settings (setting_name, setting_value)
                         SELECT 'Schedule_Repeat', '24'
                         WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Schedule_Repeat');''')
@@ -108,7 +119,7 @@ def create_tables(conn):
                         WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Copying_To');''')
         # Archive Dir
         conn.execute('''INSERT INTO settings (setting_name, setting_value)
-                        SELECT 'Archive_Dir', 'DEFAULT'
+                        SELECT 'Archive_Dir', 'Default'
                         WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Archive_Dir');''')
 
 # Example function to insert a new backup record
@@ -122,9 +133,9 @@ def insert_backup(conn, backup_name, status, size, location, backup_type):
 
 # Take Last settings Values from DB ----------------------------------------------
 def fetch_settings(conn):
-    global ExpiryDateD, ScheduleRepeatH
+    global ExpiryDateD, ScheduleRepeatH, OperatingSystem
     with conn:
-        sql = '''SELECT setting_name, setting_value FROM settings WHERE setting_name IN ('Expiry_Date', 'Schedule_Repeat');'''
+        sql = '''SELECT setting_name, setting_value FROM settings WHERE setting_name IN ('Expiry_Date', 'Schedule_Repeat', 'Recognised_OS');'''
         cur = conn.cursor()
         cur.execute(sql)
         settings = cur.fetchall()
@@ -133,8 +144,18 @@ def fetch_settings(conn):
                 ExpiryDateD = value
             elif name == 'Schedule_Repeat':
                 ScheduleRepeatH = value
-
+            elif name == 'Recognised_OS':
+                OperatingSystem = value
 # Update Settings Values ---------------------------------------------------------
+def setOS(conn):
+    os_name = platform.system()
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Recognised_OS';'''
+        cur = conn.cursor()
+        cur.execute(sql, (os_name,))
+        return cur.lastrowid
 def UpdateSettings_ExpiryDate(conn, ExpiryDateD):
     with conn:
         sql = '''UPDATE settings
@@ -153,26 +174,40 @@ def UpdateSettings_ScheduleRepeat(conn, ScheduleRepeatH):
         cur.execute(sql, (ScheduleRepeatH,))
         return cur.lastrowid
 
+def UpdateSettings_BackupTitle(conn, BackupTitleT):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Backup_Title';'''
+        cur = conn.cursor()
+        cur.execute(sql, (BackupTitleT,))
+        return cur.lastrowid
 # Button Fuctions -----------------------------------------------------------------
 def CreateBackup():
-    os_name = platform.system()
-    script_path = 'Python_Autobackup/autobackup.sh'
-    
-    if os_name == 'Windows':
-        # Assuming 'bash' is available in the system PATH (e.g., Git Bash)
-        result = subprocess.run(['bash', script_path], shell=True)
-        print(result)
-        print(os_name)
+    if OperatingSystem == 'Windows':
+        # Paths to the PowerShell scripts
+        backup_script = 'Python_Autobackup/winautobackup.ps1'
+        
+        # Run the PowerShell scripts
+        backup_result = subprocess.run(['powershell', '-ExecutionPolicy', 'Bypass', '-File', backup_script], shell=True)
+        
+        print(backup_result)
         return "Running on Windows"
-    elif os_name in ['Linux', 'Darwin']:  # Linux and macOS
+    
+    elif OperatingSystem in ['Linux', 'Darwin']:  # Linux and macOS
+        # Path to the Bash script
+        script_path = 'Python_Autobackup/autobackup.sh'
+        
+        # Run the Bash script
         result = subprocess.run(['bash', script_path])
+        
         print(result)
-        print(os_name)
-        return f"Running on {os_name}"
+        return f"Running on {OperatingSystem}"
+    
     else:
-        print(os_name)
-        return f"Running on {os_name}"
-
+        print(OperatingSystem)
+        return f"Running on {OperatingSystem}"
+    
 def NewSettingValues():
     # Expiry Date Values
     ExpiryDateD = entry_widget1.get()
@@ -190,10 +225,19 @@ def NewSettingValues():
         ScheduleRepeatH = entry_widget2.get()
         text5.config(text=ScheduleRepeatH)
         UpdateSettings_ScheduleRepeat(conn, ScheduleRepeatH)
+    # Backup Title Values
+    BackupTitleT = entry_widget3.get()
+    if entry_widget3.get() == None or BackupTitleT == "0" or BackupTitleT == "" or BackupTitleT == " " or not (re.search(regexletter, BackupTitleT)):
+        BackupTitleT = DefaultBackupTitle
+    else:
+        BackupTitleT = entry_widget3.get()
+        text7.config(text=BackupTitleT)
+        UpdateSettings_BackupTitle(conn, BackupTitleT)
     messagebox.showinfo('Saving',  
                         "Settings saved successfully!") 
     entry_widget1.delete(0, END) 
     entry_widget2.delete(0, END)
+    entry_widget3.delete(0, END)
 
 
 # Tkinter Functions //////////////////////////////////////////////////////////////
@@ -238,6 +282,7 @@ win.geometry(WindowSize)
 
 conn = create_connection()
 create_tables(conn)
+setOS(conn)
 fetch_settings(conn)
 
 # Home Screen Frame ---------------------------------------------------------------------
@@ -339,9 +384,6 @@ smallTitle = Label(screen6_frame, text="Smart. Backup. System.", font=(Titlefont
 smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen6_frame, text="Settings", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
-
-back_button = Button(screen6_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen6_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
-back_button.place(x=400, y=280)
 # Expiry Date
 text2 = Label(screen6_frame, text="Expiry Date:", font=(SubTitlefont, 10))
 text2.place(x=80, y=70)
@@ -372,54 +414,60 @@ text12 = Label(screen6_frame, text="Archive Directory:", font=(SubTitlefont, 10)
 text12.place(x=80, y=220)
 text13 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
 text13.place(x=190, y=220)
-
+# Recognised OS
+text14 = Label(screen6_frame, text="Recognised OS:", font=(SubTitlefont, 10))
+text14.place(x=80, y=280)
+text15 = Label(screen6_frame, text=OperatingSystem, font=(SubTitlefont, 10))
+text15.place(x=190, y=280)
 # Input v
-canvas_widget = Canvas(screen6_frame, width=250, height=300) 
-canvas_widget.place(x=210, y=-40) 
+canvas_widget = Canvas(screen6_frame, width=200, height=300) 
+canvas_widget.place(x=280, y=-40) 
   
 # Create and place the label in canvas 
 # for user to enter his name 
 label_widget1 = Label(screen6_frame, text="Expiry Date (in Days)") 
-canvas_widget.create_window(150, 120, window=label_widget1)
+canvas_widget.create_window(100, 120, window=label_widget1)
 
 label_widget2 = Label(screen6_frame, text="Scheduled Repeat (in Hours)") 
-canvas_widget.create_window(150, 150, window=label_widget2) 
+canvas_widget.create_window(100, 150, window=label_widget2) 
 
 label_widget3 = Label(screen6_frame, text="Backup Title (No Spaces)") 
-canvas_widget.create_window(150, 180, window=label_widget3)
+canvas_widget.create_window(100, 180, window=label_widget3)
 
 label_widget4 = Label(screen6_frame, text="copying from (No Spaces)") 
-canvas_widget.create_window(150, 210, window=label_widget4) 
+canvas_widget.create_window(100, 210, window=label_widget4) 
 
 label_widget5 = Label(screen6_frame, text="copying to (No Spaces)") 
-canvas_widget.create_window(150, 240, window=label_widget5)
+canvas_widget.create_window(100, 240, window=label_widget5)
 
 label_widget6 = Label(screen6_frame, text="Archive Directory (No Spaces)") 
-canvas_widget.create_window(150, 270, window=label_widget6)
+canvas_widget.create_window(100, 270, window=label_widget6)
 # Create an input name on canvas 
 # for inputting user name using widget Entry 
 entry_widget1 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 120, window=entry_widget1) 
+canvas_widget.create_window(250, 120, window=entry_widget1) 
 
 entry_widget2 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 150, window=entry_widget2) 
+canvas_widget.create_window(250, 150, window=entry_widget2) 
 
 entry_widget3 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 180, window=entry_widget3)
+canvas_widget.create_window(250, 180, window=entry_widget3)
 
 entry_widget4 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 210, window=entry_widget4)
+canvas_widget.create_window(250, 210, window=entry_widget4)
 
 entry_widget5 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 240, window=entry_widget5)
+canvas_widget.create_window(250, 240, window=entry_widget5)
 
 entry_widget6 = Entry(screen6_frame) 
-canvas_widget.create_window(300, 270, window=entry_widget6)
+canvas_widget.create_window(250, 270, window=entry_widget6)
   
 # Creating and placing the button on canvas to submit data 
 button_widget = Button(text='Submit', command=NewSettingValues) 
-canvas_widget.create_window(225, 300, window=button_widget)
+canvas_widget.create_window(220, 300, window=button_widget)
 
+button_widget1 = Button(text='Back to Home', command=lambda: (screen6_frame.pack_forget(), home_frame.pack(fill='both', expand=True))) 
+canvas_widget.create_window(140, 300, window=button_widget1)
 # Input ^
 
 screen6_frame.pack_forget()
