@@ -16,7 +16,7 @@ param (
 $cutoffDate = (Get-Date).AddDays(-$ExpiryDate)
 
 # Get all directories in the backup folder older than the cutoff date
-$oldBackups = Get-ChildItem -Path $copyingto -Directory | Where-Object { $_.LastWriteTime -lt $cutoffDate }
+$oldBackups = Get-ChildItem -Path $copyingto | Where-Object { $_.LastWriteTime -lt $cutoffDate }
 
 # Move old backups to the archive directory
 foreach ($backup in $oldBackups) {

@@ -16,7 +16,9 @@ ArchivePathP = None
 OperatingSystem = None
 ExpiryDateText = ExpiryDateD
 regexnum = '^[0-9]+$'
-regexletter = '^[A-Za-z0-9]+$'
+regexletter = '^(?=.*[A-Za-z])[A-Za-z0-9_]+$'
+regexdir = '^(?=.*[A-Za-z])[A-Za-z0-9_]+$'
+regexlogfiles = '^' + 'log'
 
 
 #Default Values Settings:
@@ -133,9 +135,9 @@ def insert_backup(conn, backup_name, status, size, location, backup_type):
 
 # Take Last settings Values from DB ----------------------------------------------
 def fetch_settings(conn):
-    global ExpiryDateD, ScheduleRepeatH, OperatingSystem
+    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem
     with conn:
-        sql = '''SELECT setting_name, setting_value FROM settings WHERE setting_name IN ('Expiry_Date', 'Schedule_Repeat', 'Recognised_OS');'''
+        sql = '''SELECT setting_name, setting_value FROM settings WHERE setting_name IN ('Expiry_Date', 'Schedule_Repeat', 'Backup_Title', 'Copying_From', 'Copying_To', 'Archive_Dir', 'Recognised_OS');'''
         cur = conn.cursor()
         cur.execute(sql)
         settings = cur.fetchall()
@@ -144,8 +146,36 @@ def fetch_settings(conn):
                 ExpiryDateD = value
             elif name == 'Schedule_Repeat':
                 ScheduleRepeatH = value
+            elif name == 'Backup_Title':
+                BackupTitleT = value
+            elif name == 'Copying_From':
+                CopyPathP = value
+            elif name == 'Copying_To':
+                PastePathP = value
+            elif name == 'Archive_Dir':
+                ArchivePathP = value
             elif name == 'Recognised_OS':
                 OperatingSystem = value
+    UpdateDB(conn)
+# Update DB values for Folders & Files ------------------------------------------
+def UpdateDB(conn):
+    os_name = platform.system()
+    logfilename = 'log' + regexlogfiles
+    if os.path.isfile(regexlogfiles):
+        if OperatingSystem == 'Windows':
+            os.listdir(PastePathP)
+            with conn:
+                conn.execute('''INSERT INTO logs (backup_id, log_message, log_level, Timestamp)
+                            SELECT 'Archive_Dir', 'Default'
+                            WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Archive_Dir');''')
+        
+        elif OperatingSystem in ['Linux', 'Darwin']:
+            print()
+        
+        else:
+            print()
+    if os.path.isdir("data"):
+        print()
 # Update Settings Values ---------------------------------------------------------
 def setOS(conn):
     os_name = platform.system()
@@ -182,15 +212,55 @@ def UpdateSettings_BackupTitle(conn, BackupTitleT):
         cur = conn.cursor()
         cur.execute(sql, (BackupTitleT,))
         return cur.lastrowid
+
+def UpdateSettings_CopyingFrom(conn, CopyPathP):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Copying_From';'''
+        cur = conn.cursor()
+        cur.execute(sql, (CopyPathP,))
+        return cur.lastrowid
+
+def UpdateSettings_CopyingTo(conn, PastePathP):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Copying_To';'''
+        cur = conn.cursor()
+        cur.execute(sql, (PastePathP,))
+        return cur.lastrowid
+
+def UpdateSettings_ArchiveDir(conn, ArchivePathP):
+    with conn:
+        sql = '''UPDATE settings
+                SET setting_value = ?
+                WHERE setting_name = 'Archive_Dir';'''
+        cur = conn.cursor()
+        cur.execute(sql, (ArchivePathP,))
+        return cur.lastrowid
 # Button Fuctions -----------------------------------------------------------------
 def CreateBackup():
+    fetch_settings(conn)
+    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem
     if OperatingSystem == 'Windows':
         # Paths to the PowerShell scripts
         backup_script = 'Python_Autobackup/winautobackup.ps1'
         
         # Run the PowerShell scripts
-        backup_result = subprocess.run(['powershell', '-ExecutionPolicy', 'Bypass', '-File', backup_script], shell=True)
-        
+        backup_result = subprocess.run(
+            [
+                'powershell', 
+                '-ExecutionPolicy', 'Bypass', 
+                '-File', backup_script, 
+                '-BackupTitle', BackupTitleT, 
+                '-CopyPath', CopyPathP, 
+                '-PastePath', PastePathP, 
+                '-ArchivePath', ArchivePathP, 
+                '-ExpiryDate', str(ExpiryDateD)
+            ], 
+            shell=True
+        )        
         print(backup_result)
         return "Running on Windows"
     
@@ -208,10 +278,47 @@ def CreateBackup():
         print(OperatingSystem)
         return f"Running on {OperatingSystem}"
     
+def CheckArchive():
+    fetch_settings(conn)
+    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem
+    if OperatingSystem == 'Windows':
+        # Paths to the PowerShell scripts
+        archive_script = 'Python_Autobackup/winhousekeeping.ps1'
+        
+        # Run the PowerShell scripts
+        archive_result = subprocess.run(
+            [
+                'powershell', 
+                '-ExecutionPolicy', 'Bypass', 
+                '-File', archive_script, 
+                '-copyingto', PastePathP, 
+                '-archivedir', ArchivePathP, 
+                '-ExpiryDate', ExpiryDateD
+            ], 
+            shell=True
+        )        
+        print(archive_result)
+        return "Running on Windows"
+    
+    elif OperatingSystem in ['Linux', 'Darwin']:  # Linux and macOS
+        # Path to the Bash script
+        script_path = 'Python_Autobackup/housekeeping.sh'
+        
+        # Run the Bash script
+        result = subprocess.run(['bash', script_path])
+        
+        print(result)
+        return f"Running on {OperatingSystem}"
+    
+    else:
+        print(OperatingSystem)
+        return f"Running on {OperatingSystem}"
+        
+
 def NewSettingValues():
-    # Expiry Date Values
+    # Expiry Date Values # or ExpiryDateD == "0" 
     ExpiryDateD = entry_widget1.get()
-    if entry_widget1.get() == None or ExpiryDateD == "0" or ExpiryDateD == "" or ExpiryDateD == " " or not (re.search(regexnum, ExpiryDateD)):
+    if entry_widget1.get() == None or ExpiryDateD == "" or ExpiryDateD == " " or not (re.search(regexnum, ExpiryDateD)):
         ExpiryDateD = DefaultExpiryDate
     else:
         ExpiryDateD = entry_widget1.get()
@@ -233,11 +340,38 @@ def NewSettingValues():
         BackupTitleT = entry_widget3.get()
         text7.config(text=BackupTitleT)
         UpdateSettings_BackupTitle(conn, BackupTitleT)
+    # Copying From Values
+    CopyPathP = entry_widget4.get()
+    if entry_widget4.get() == None or CopyPathP == "0" or CopyPathP == "" or CopyPathP == " " or not (re.search(regexdir, CopyPathP)):
+        CopyPathP = DefaultCopyPath
+    else:
+        CopyPathP = entry_widget4.get()
+        text9.config(text=CopyPathP)
+        UpdateSettings_CopyingFrom(conn, CopyPathP)
+    # Copying To Values
+    PastePathP = entry_widget5.get()
+    if entry_widget5.get() == None or PastePathP == "0" or PastePathP == "" or PastePathP == " " or not (re.search(regexdir, PastePathP)):
+        PastePathP = DefaultPastePath
+    else:
+        PastePathP = entry_widget5.get()
+        text11.config(text=PastePathP)
+        UpdateSettings_CopyingTo(conn, PastePathP)
+    # Archive Values
+    ArchivePathP = entry_widget6.get()
+    if entry_widget6.get() == None or ArchivePathP == "0" or ArchivePathP == "" or ArchivePathP == " " or not (re.search(regexdir, ArchivePathP)):
+        ArchivePathP = DefaultArchivePath
+    else:
+        ArchivePathP = entry_widget6.get()
+        text13.config(text=ArchivePathP)
+        UpdateSettings_ArchiveDir(conn, ArchivePathP)
     messagebox.showinfo('Saving',  
                         "Settings saved successfully!") 
     entry_widget1.delete(0, END) 
     entry_widget2.delete(0, END)
     entry_widget3.delete(0, END)
+    entry_widget4.delete(0, END)
+    entry_widget5.delete(0, END)
+    entry_widget6.delete(0, END)
 
 
 # Tkinter Functions //////////////////////////////////////////////////////////////
@@ -317,7 +451,9 @@ smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen1_frame, text="Check Archive", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
 
-# Example Button to go back to Home Screen
+CheckArchive_button = Button(screen1_frame, text="Check Dates for Archive", font=(ButtonFont, 10), command=CheckArchive)
+CheckArchive_button.place(x=400, y=200)
+
 back_button = Button(screen1_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen1_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
 back_button.place(x=400, y=280)
 
@@ -331,6 +467,8 @@ smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen2_frame, text="Create new Backup", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
 
+PlanBackup_button = Button(screen2_frame, text="PlanBackup", font=(ButtonFont, 10), command=CreateBackup)
+PlanBackup_button.place(x=400, y=200)
 create_button = Button(screen2_frame, text="New Backup", font=(ButtonFont, 10), command=CreateBackup)
 create_button.place(x=400, y=240)
 back_button = Button(screen2_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen2_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
@@ -397,22 +535,22 @@ text5.place(x=190, y=100)
 # Backup Title
 text6 = Label(screen6_frame, text="Backup Title:", font=(SubTitlefont, 10))
 text6.place(x=80, y=130)
-text7 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text7 = Label(screen6_frame, text=BackupTitleT, font=(SubTitlefont, 10))
 text7.place(x=190, y=130)
 # Copying from
 text8 = Label(screen6_frame, text="Copying from:", font=(SubTitlefont, 10))
 text8.place(x=80, y=160)
-text9 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text9 = Label(screen6_frame, text=CopyPathP, font=(SubTitlefont, 10))
 text9.place(x=190, y=160)
 # Copying to
 text10 = Label(screen6_frame, text="Copying to:", font=(SubTitlefont, 10))
 text10.place(x=80, y=190)
-text11 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text11 = Label(screen6_frame, text=PastePathP, font=(SubTitlefont, 10))
 text11.place(x=190, y=190)
 # Archive Directory
 text12 = Label(screen6_frame, text="Archive Directory:", font=(SubTitlefont, 10))
 text12.place(x=80, y=220)
-text13 = Label(screen6_frame, text=ScheduleRepeatH, font=(SubTitlefont, 10))
+text13 = Label(screen6_frame, text=ArchivePathP, font=(SubTitlefont, 10))
 text13.place(x=190, y=220)
 # Recognised OS
 text14 = Label(screen6_frame, text="Recognised OS:", font=(SubTitlefont, 10))
