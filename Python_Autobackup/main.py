@@ -17,7 +17,7 @@ OperatingSystem = None
 ExpiryDateText = ExpiryDateD
 regexnum = '^[0-9]+$'
 regexletter = '^(?=.*[A-Za-z])[A-Za-z0-9_]+$'
-regexdir = '^(?=.*[A-Za-z])[A-Za-z0-9_]+$'
+regexdir = '^(?=.*[A-Za-z])*[./A-Za-z0-9_]+$'
 regexlogfiles = '^' + 'log'
 
 
@@ -241,11 +241,10 @@ def UpdateSettings_ArchiveDir(conn, ArchivePathP):
         return cur.lastrowid
 # Button Fuctions -----------------------------------------------------------------
 def CreateBackup():
-    fetch_settings(conn)
-    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem
+    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem, script_dir
     if OperatingSystem == 'Windows':
         # Paths to the PowerShell scripts
-        backup_script = 'Python_Autobackup/winautobackup.ps1'
+        backup_script = os.path.join(script_dir, 'winautobackup.ps1')
         
         # Run the PowerShell scripts
         backup_result = subprocess.run(
@@ -260,30 +259,37 @@ def CreateBackup():
                 '-ExpiryDate', str(ExpiryDateD)
             ], 
             shell=True
-        )        
+        )
+        
         print(backup_result)
         return "Running on Windows"
     
     elif OperatingSystem in ['Linux', 'Darwin']:  # Linux and macOS
         # Path to the Bash script
-        script_path = 'Python_Autobackup/autobackup.sh'
+        script_path = os.path.join(script_dir, 'autobackup.sh')
         
         # Run the Bash script
-        result = subprocess.run(['bash', script_path])
+        result = subprocess.run(
+            [
+                'bash',
+                script_path,
+                BackupTitleT,
+                CopyPathP,
+                PastePathP,
+                ArchivePathP,
+                str(ExpiryDateD)
+            ]
+        )
         
         print(result)
         return f"Running on {OperatingSystem}"
     
-    else:
-        print(OperatingSystem)
-        return f"Running on {OperatingSystem}"
-    
 def CheckArchive():
     fetch_settings(conn)
-    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem
+    global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem, script_dir
     if OperatingSystem == 'Windows':
         # Paths to the PowerShell scripts
-        archive_script = 'Python_Autobackup/winhousekeeping.ps1'
+        archive_script = os.path.join(script_dir, 'winhousekeeping.ps1')
         
         # Run the PowerShell scripts
         archive_result = subprocess.run(
@@ -293,21 +299,36 @@ def CheckArchive():
                 '-File', archive_script, 
                 '-copyingto', PastePathP, 
                 '-archivedir', ArchivePathP, 
-                '-ExpiryDate', ExpiryDateD
+                '-ExpiryDate', str(ExpiryDateD)
             ], 
-            shell=True
-        )        
-        print(archive_result)
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print("stdout:", archive_result.stdout)
+        print("stderr:", archive_result.stderr)
         return "Running on Windows"
     
     elif OperatingSystem in ['Linux', 'Darwin']:  # Linux and macOS
         # Path to the Bash script
-        script_path = 'Python_Autobackup/housekeeping.sh'
+        script_path = os.path.join(script_dir, 'housekeeping.sh')
         
         # Run the Bash script
-        result = subprocess.run(['bash', script_path])
+        result = subprocess.run(
+            [
+                'bash', 
+                script_path, 
+                PastePathP, 
+                ArchivePathP, 
+                str(ExpiryDateD)
+            ],
+            capture_output=True,
+            text=True
+        )
         
-        print(result)
+        print("stdout:", result.stdout)
+        print("stderr:", result.stderr)
         return f"Running on {OperatingSystem}"
     
     else:
@@ -411,7 +432,7 @@ def Settings_ButtonPress():
 win = Tk()
 win.resizable(width=False, height=False)
 win.title(FrameTitle)
-win.iconbitmap(FrameIcon)
+#win.iconbitmap(FrameIcon)
 win.geometry(WindowSize)
 
 conn = create_connection()
