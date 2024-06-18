@@ -5,6 +5,7 @@ import re
 import platform
 from tkinter import *
 from tkinter import messagebox
+from tkinter import filedialog
 
 # Script Variables
 ExpiryDateD = None
@@ -17,7 +18,7 @@ OperatingSystem = None
 ExpiryDateText = ExpiryDateD
 regexnum = '^[0-9]+$'
 regexletter = '^(?=.*[A-Za-z])[A-Za-z0-9_]+$'
-regexdir = '^(?=.*[A-Za-z])*[./A-Za-z0-9_]+$'
+regexdir = r'^(?:[A-Za-z]:\\|\/)?(?:[^\/:*?"<>|\r\n\\]+[\/\\]?)*[^\/:*?"<>|\r\n\\]$'
 regexlogfiles = '^' + 'log'
 
 
@@ -40,6 +41,12 @@ FrameTitle = 'Smart. B.S.'
 script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of the script
 FrameIcon = os.path.join(script_dir, 'images', 'Icon.ico')
 WindowSize = '700x350'
+
+# Input Variables 
+InputCopyDir = None
+copy_dir_string = None
+paste_dir_string = None
+archive_dir_string = None
 
 # SQLite Functions //////////////////////////////////////////////////////////////
 def create_connection():
@@ -362,27 +369,24 @@ def NewSettingValues():
         text7.config(text=BackupTitleT)
         UpdateSettings_BackupTitle(conn, BackupTitleT)
     # Copying From Values
-    CopyPathP = entry_widget4.get()
-    if entry_widget4.get() == None or CopyPathP == "0" or CopyPathP == "" or CopyPathP == " " or not (re.search(regexdir, CopyPathP)):
+    CopyPathP = copy_dir_string
+    if CopyPathP is None or CopyPathP == "" or re.search(regexdir, CopyPathP):
         CopyPathP = DefaultCopyPath
     else:
-        CopyPathP = entry_widget4.get()
         text9.config(text=CopyPathP)
         UpdateSettings_CopyingFrom(conn, CopyPathP)
     # Copying To Values
-    PastePathP = entry_widget5.get()
-    if entry_widget5.get() == None or PastePathP == "0" or PastePathP == "" or PastePathP == " " or not (re.search(regexdir, PastePathP)):
+    PastePathP = paste_dir_string
+    if PastePathP is None or PastePathP == "" or (re.search(regexdir, PastePathP)):
         PastePathP = DefaultPastePath
     else:
-        PastePathP = entry_widget5.get()
         text11.config(text=PastePathP)
         UpdateSettings_CopyingTo(conn, PastePathP)
     # Archive Values
-    ArchivePathP = entry_widget6.get()
-    if entry_widget6.get() == None or ArchivePathP == "0" or ArchivePathP == "" or ArchivePathP == " " or not (re.search(regexdir, ArchivePathP)):
+    ArchivePathP = archive_dir_string
+    if ArchivePathP == None or ArchivePathP == "" or (re.search(regexdir, ArchivePathP)):
         ArchivePathP = DefaultArchivePath
     else:
-        ArchivePathP = entry_widget6.get()
         text13.config(text=ArchivePathP)
         UpdateSettings_ArchiveDir(conn, ArchivePathP)
     messagebox.showinfo('Saving',  
@@ -390,9 +394,6 @@ def NewSettingValues():
     entry_widget1.delete(0, END) 
     entry_widget2.delete(0, END)
     entry_widget3.delete(0, END)
-    entry_widget4.delete(0, END)
-    entry_widget5.delete(0, END)
-    entry_widget6.delete(0, END)
 
 
 # Tkinter Functions //////////////////////////////////////////////////////////////
@@ -428,6 +429,31 @@ def Settings_ButtonPress():
     fetch_settings(conn)
     Update_Options()
     Settings_Options()
+
+def FetchCopyDir():
+    global copy_dir_string
+    InputCopyDir = filedialog.askdirectory(title='Select Server Folder ...')
+    if InputCopyDir:
+        copy_dir_string = InputCopyDir
+        print(f"Selected directory: {copy_dir_string}")
+        NewSettingValues()
+
+def FetchPasteDir():
+    global paste_dir_string
+    InputPasteDir = filedialog.askdirectory(title='Select Backups Folder ...')
+    if InputPasteDir:
+        paste_dir_string = InputPasteDir
+        print(f"Selected directory: {paste_dir_string}")
+        NewSettingValues()
+    
+def FetchArchiveDir():
+    global archive_dir_string
+    InputArchiveDir = filedialog.askdirectory(title='Select Archive Folder ...')
+    if InputArchiveDir:
+        archive_dir_string = InputArchiveDir
+        print(f"Selected directory: {archive_dir_string}")
+        NewSettingValues()
+
 # Main Window
 win = Tk()
 win.resizable(width=False, height=False)
@@ -611,23 +637,25 @@ canvas_widget.create_window(250, 150, window=entry_widget2)
 
 entry_widget3 = Entry(screen6_frame) 
 canvas_widget.create_window(250, 180, window=entry_widget3)
-
-entry_widget4 = Entry(screen6_frame) 
-canvas_widget.create_window(250, 210, window=entry_widget4)
-
-entry_widget5 = Entry(screen6_frame) 
-canvas_widget.create_window(250, 240, window=entry_widget5)
-
-entry_widget6 = Entry(screen6_frame) 
-canvas_widget.create_window(250, 270, window=entry_widget6)
-  
+ 
 # Creating and placing the button on canvas to submit data 
 button_widget = Button(text='Submit', command=NewSettingValues) 
 canvas_widget.create_window(220, 300, window=button_widget)
 
 button_widget1 = Button(text='Back to Home', command=lambda: (screen6_frame.pack_forget(), home_frame.pack(fill='both', expand=True))) 
 canvas_widget.create_window(140, 300, window=button_widget1)
+
+button_widget2 = Button(text='Choose Dir ...', command=FetchCopyDir) 
+canvas_widget.create_window(230, 210, window=button_widget2)
+
+button_widget3 = Button(text='Choose Dir ...', command=FetchPasteDir) 
+canvas_widget.create_window(230, 240, window=button_widget3)
+
+button_widget4 = Button(text='Choose Dir ...', command=FetchArchiveDir) 
+canvas_widget.create_window(230, 270, window=button_widget4)
 # Input ^
+
+#FetchCopyDir():
 
 screen6_frame.pack_forget()
 
