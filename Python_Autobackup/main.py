@@ -4,8 +4,11 @@ import subprocess
 import re
 import platform
 from tkinter import *
+import tkinter as tk
+from tkinter import ttk
 from tkinter import messagebox
 from tkinter import filedialog
+from datetime import datetime
 
 # Script Variables
 ExpiryDateD = None
@@ -47,6 +50,7 @@ InputCopyDir = None
 copy_dir_string = None
 paste_dir_string = None
 archive_dir_string = None
+tree = None
 
 # SQLite Functions //////////////////////////////////////////////////////////////
 def create_connection():
@@ -167,22 +171,68 @@ def fetch_settings(conn):
 # Update DB values for Folders & Files ------------------------------------------
 def UpdateDB(conn):
     os_name = platform.system()
-    logfilename = 'log' + regexlogfiles
-    if os.path.isfile(regexlogfiles):
-        if OperatingSystem == 'Windows':
-            os.listdir(PastePathP)
+    
+    def log_exists(conn, directory, filename):
+        cursor = conn.cursor()
+        cursor.execute('''SELECT 1 FROM logs WHERE backup_id = ? AND log_message = ?''', (directory, filename))
+        return cursor.fetchone() is not None
+    
+    def backup_exists(conn, backup_name, backup_path):
+        cursor = conn.cursor()
+        cursor.execute('''SELECT 1 FROM backups WHERE backup_name = ? AND location = ?''', (backup_name, backup_path))
+        return cursor.fetchone() is not None
+    
+    def insert_log(conn, directory, filename):
+        if not log_exists(conn, directory, filename):
             with conn:
                 conn.execute('''INSERT INTO logs (backup_id, log_message, log_level, Timestamp)
-                            SELECT 'Archive_Dir', 'Default'
-                            WHERE NOT EXISTS (SELECT 1 FROM settings WHERE setting_name = 'Archive_Dir');''')
+                                VALUES (?, ?, ?, datetime('now'))''', (directory, filename, 'Default'))
+    
+    def insert_backup(conn, backup_name, creation_date, status, size, location, backup_type):
+        if not backup_exists(conn, backup_name, location):
+            with conn:
+                conn.execute('''INSERT INTO backups (backup_name, created_at, status, size, location, type)
+                                VALUES (?, ?, ?, ?, ?, ?)''', (backup_name, creation_date, status, size, location, backup_type))
+    
+    def get_folder_info(folder_path):
+        backup_name = os.path.basename(folder_path)
         
-        elif OperatingSystem in ['Linux', 'Darwin']:
-            print()
-        
+        # Use different methods to get the creation date based on the operating system
+        if os_name == 'Windows':
+            creation_date = datetime.fromtimestamp(os.path.getctime(folder_path)).strftime('%Y-%m-%d %H:%M:%S')
         else:
-            print()
-    if os.path.isdir("data"):
-        print()
+            # For Linux and macOS, use the last modification time
+            creation_date = datetime.fromtimestamp(os.path.getmtime(folder_path)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        status = 'Completed'
+        size = sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, fn in os.walk(folder_path) for f in fn)
+        location = folder_path
+        backup_type = 'Full' if 'full' in backup_name.lower() else 'Incremental'
+        return backup_name, creation_date, status, size, location, backup_type
+    
+    def process_directory(conn, directory_path):
+        for item in os.listdir(directory_path):
+            item_path = os.path.join(directory_path, item)
+            if os.path.isdir(item_path):
+                # Process each subdirectory as a backup
+                backup_name, creation_date, status, size, location, backup_type = get_folder_info(item_path)
+                print(f"Processing backup folder: {item_path}")  # For debugging
+                insert_backup(conn, backup_name, creation_date, status, size, location, backup_type)
+            elif re.match(regexlogfiles, item):
+                # Process log files in the main directory
+                log_file_path = os.path.join(directory_path, item)
+                print(f"Processing log file: {log_file_path}")  # For debugging
+                insert_log(conn, directory_path, item)
+    
+    # Check Backup directory
+    if os.path.isdir(PastePathP):
+        print(f"Checking Backup directory: {PastePathP}")
+        process_directory(conn, PastePathP)
+    
+    # Check Archive directory
+    if os.path.isdir(ArchivePathP):
+        print(f"Checking Archive directory: {ArchivePathP}")
+        process_directory(conn, ArchivePathP)
 # Update Settings Values ---------------------------------------------------------
 def setOS(conn):
     os_name = platform.system()
@@ -290,7 +340,7 @@ def CreateBackup():
         
         print(result)
         return f"Running on {OperatingSystem}"
-    
+    UpdateDB(conn)
 def CheckArchive():
     fetch_settings(conn)
     global ExpiryDateD, ScheduleRepeatH, BackupTitleT, CopyPathP, PastePathP, ArchivePathP, OperatingSystem, script_dir
@@ -341,7 +391,7 @@ def CheckArchive():
     else:
         print(OperatingSystem)
         return f"Running on {OperatingSystem}"
-        
+    UpdateDB(conn)   
 
 def NewSettingValues():
     # Expiry Date Values # or ExpiryDateD == "0" 
@@ -395,25 +445,83 @@ def NewSettingValues():
     entry_widget2.delete(0, END)
     entry_widget3.delete(0, END)
 
+def fetch_data_from_db(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM backups")  # Adjust this query to your needs
+    rows = cursor.fetchall()
+    return rows
 
+def create_viewer(data):
+    global tree
+    if tree:
+        tree.destroy()  # Destroy the previous tree if it exists
+    tree = ttk.Treeview(win)
+    tree['columns'] = ('backup_id', 'backup_name', 'created_at', 'status', 'size', 'location', 'type')
+    
+    # Format columns
+    tree.column("#0", width=0, stretch=tk.NO)  # Remove the default first column
+    tree.column("backup_id", anchor=tk.W, width=80)
+    tree.column("backup_name", anchor=tk.W, width=120)
+    tree.column("created_at", anchor=tk.W, width=150)
+    tree.column("status", anchor=tk.W, width=80)
+    tree.column("size", anchor=tk.W, width=80)
+    tree.column("location", anchor=tk.W, width=200)
+    tree.column("type", anchor=tk.W, width=100)
+    
+    # Create headings
+    tree.heading("#0", text="", anchor=tk.W)
+    tree.heading("backup_id", text="ID", anchor=tk.W)
+    tree.heading("backup_name", text="Backup Name", anchor=tk.W)
+    tree.heading("created_at", text="Created At", anchor=tk.W)
+    tree.heading("status", text="Status", anchor=tk.W)
+    tree.heading("size", text="Size", anchor=tk.W)
+    tree.heading("location", text="Location", anchor=tk.W)
+    tree.heading("type", text="Type", anchor=tk.W)
+    
+    # Insert data into Treeview
+    for row in data:
+        tree.insert("", tk.END, values=row)
+    
+    tree.place(x=10, y=70)
+    return tree
+
+def viewerfunctions():
+    fetch_settings(conn)
+    ViewerBackup_Options()
+    data = fetch_data_from_db(conn)
+    create_viewer(data)
+def destroy_treeview():
+    global tree
+    if tree:
+        tree.destroy()
+        tree = None
+
+def browseFilesBackup():
+    filename = filedialog.askopenfilename(initialdir = PastePathP,
+                                          title = "Browse Backups",
+                                          filetypes = (("Text files",
+                                                        "*.txt*"),
+                                                       ("all files",
+                                                        "*.*")))
+def browseFilesArchive():
+    filename = filedialog.askopenfilename(initialdir = ArchivePathP,
+                                          title = "Browse Backups",
+                                          filetypes = (("Text files",
+                                                        "*.txt*"),
+                                                       ("all files",
+                                                        "*.*")))
 # Tkinter Functions //////////////////////////////////////////////////////////////
-def CheckArchive_Options():
-    home_frame.pack_forget()
-    screen1_frame.pack(fill='both', expand=True)
-
 def CreateBackup_Options():
     home_frame.pack_forget()
     screen2_frame.pack(fill='both', expand=True)
 
-def EditBackup_Options():
-    home_frame.pack_forget()
-    screen3_frame.pack(fill='both', expand=True)
-
 def RetrieveBackup_Options():
     home_frame.pack_forget()
     screen4_frame.pack(fill='both', expand=True)
-
 def ViewerBackup_Options():
+
+    data = fetch_data_from_db(conn)
+
     home_frame.pack_forget()
     screen5_frame.pack(fill='both', expand=True)
 
@@ -473,38 +581,20 @@ home_frame.pack(fill='both', expand=True)
 smallTitle = Label(home_frame, text="Smart. Backup. System.", font=(Titlefont, 15))
 smallTitle.place(x=10, y=0)
 smallTitle2 = Label(home_frame, text="Home", font=(SubTitlefont, 15))
-smallTitle2.place(x=50, y=40)
+smallTitle2.place(x=50, y=45)
 
-CleanupBackup_Button = Button(home_frame, text="Check date for Archive", font=('bold', 10), command=CheckArchive_Options)
-CleanupBackup_Button.place(x=400, y=100)
+CleanupBackup_Button = Button(home_frame, text="Check date for Archive", font=('bold', 10), command=CheckArchive)
+CleanupBackup_Button.place(x=400, y=85)
 NewBackup_Button = Button(home_frame, text="Create New Backup", font=('bold', 10), command=CreateBackup_Options)
-NewBackup_Button.place(x=400, y=130)
-Editor_Button = Button(home_frame, text="Edit Backups", font=(ButtonFont, 10), command=EditBackup_Options)
-Editor_Button.place(x=400, y=160)
+NewBackup_Button.place(x=400, y=125)
 RetrieveBackup_Button = Button(home_frame, text="Retrieve Backup", font=(ButtonFont, 10), command=RetrieveBackup_Options)
-RetrieveBackup_Button.place(x=400, y=190)
-ViewerBackup_Button = Button(home_frame, text="View Backups", font=(ButtonFont, 10), command=ViewerBackup_Options)
-ViewerBackup_Button.place(x=400, y=220)
+RetrieveBackup_Button.place(x=400, y=165)
+ViewerBackup_Button = Button(home_frame, text="View Backups", font=(ButtonFont, 10), command= viewerfunctions)
+ViewerBackup_Button.place(x=400, y=205)
 Quit = Button(home_frame, text="Quit", font=(ButtonFont, 10), command=win.quit)
-Quit.place(x=400, y=250)
+Quit.place(x=400, y=245)
 SettingsBackup_Button = Button(home_frame, text="Settings", font=(ButtonFont, 10), command=Settings_ButtonPress)
-SettingsBackup_Button.place(x=440, y=250)
-
-# Screen 1 Frame --------------------------------------------------------------------- Check Archive
-screen1_frame = Frame(win)
-
-smallTitle = Label(screen1_frame, text="Smart. Backup. System.", font=(Titlefont, 15))
-smallTitle.place(x=10, y=0)
-smallTitle2 = Label(screen1_frame, text="Check Archive", font=(SubTitlefont, 15))
-smallTitle2.place(x=50, y=40)
-
-CheckArchive_button = Button(screen1_frame, text="Check Dates for Archive", font=(ButtonFont, 10), command=CheckArchive)
-CheckArchive_button.place(x=400, y=200)
-
-back_button = Button(screen1_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen1_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
-back_button.place(x=400, y=280)
-
-screen1_frame.pack_forget()
+SettingsBackup_Button.place(x=440, y=245)
 
 # Screen 2 Frame --------------------------------------------------------------------- Create new Backup
 screen2_frame = Frame(win)
@@ -523,19 +613,6 @@ back_button.place(x=400, y=280)
 
 screen2_frame.pack_forget()
 
-# Screen 3 Frame --------------------------------------------------------------------- Edit Backups
-screen3_frame = Frame(win)
-
-smallTitle = Label(screen3_frame, text="Smart. Backup. System.", font=(Titlefont, 15))
-smallTitle.place(x=10, y=0)
-smallTitle2 = Label(screen3_frame, text="Edit Backup", font=(SubTitlefont, 15))
-smallTitle2.place(x=50, y=40)
-
-back_button = Button(screen3_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen3_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
-back_button.place(x=400, y=280)
-
-screen3_frame.pack_forget()
-
 # Screen 4 Frame --------------------------------------------------------------------- Retrieve Backups
 screen4_frame = Frame(win)
 
@@ -544,6 +621,15 @@ smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen4_frame, text="Retrieve Backups", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
 
+smallTitle3 = Label(screen4_frame, text="Browse Folder", font=(SubTitlefont, 12))
+smallTitle3.place(x=200, y=120)
+
+explorer_button = Button(screen4_frame, text="Browse Backups", font=(ButtonFont, 10), command= browseFilesBackup)
+explorer_button.place(x=200, y=160)
+
+explorer_button = Button(screen4_frame, text="Browse Archive", font=(ButtonFont, 10), command= browseFilesArchive)
+explorer_button.place(x=200, y=200)
+
 back_button = Button(screen4_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen4_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
 back_button.place(x=400, y=280)
 
@@ -551,14 +637,16 @@ screen4_frame.pack_forget()
 
 # Screen 5 Frame --------------------------------------------------------------------- Viewer Backups
 screen5_frame = Frame(win)
+tree = ttk.Treeview(win)
 
 smallTitle = Label(screen5_frame, text="Smart. Backup. System.", font=(Titlefont, 15))
 smallTitle.place(x=10, y=0)
 smallTitle2 = Label(screen5_frame, text="View Backups", font=(SubTitlefont, 15))
 smallTitle2.place(x=50, y=40)
 
-back_button = Button(screen5_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen5_frame.pack_forget(), home_frame.pack(fill='both', expand=True)))
-back_button.place(x=400, y=280)
+back_button = Button(screen5_frame, text="Back to Home", font=(ButtonFont, 10), command=lambda: (screen5_frame.pack_forget(), destroy_treeview(), home_frame.pack(fill='both', expand=True)))
+back_button.place(x=400, y=300)
+
 
 screen5_frame.pack_forget()
 
