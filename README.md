@@ -4,9 +4,8 @@
 A Simple Backup Management System called "Smart Backup System" (Smart B.S). It is programmed in Python using the Tkinter, Regex and Sqlite3 Libraries. The Goal of this project was to create a Python script with the implementation of Tkinter, Regex and Sqlite.
 
 
-
 ## How to use
-When you download the Project and you start the Main script a Winow will open,
+When you download the Project and you start the Main script a Window will open,
 ## functionalities
 
 - Create Backup
